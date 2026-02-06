@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.env/
+
+# Data files
+data/attendance.csv
+
+# Build files
+build/
+dist/
+*.spec
+
+# OS files
+.DS_Store
+Thumbs.db
+
