@@ -1,4 +1,5 @@
 import os
+import sys
 import csv
 import math
 import tkinter as tk
@@ -7,16 +8,30 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
 from datetime import date
 
-DATA_DIR = "data"
-DATA_FILE = os.path.join(DATA_DIR, "attendance.csv")
+
 TARGET_PERCENT = 75
 
 
+# ---------------- SAFE DATA DIRECTORY ----------------
+def get_data_directory():
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.join(os.getenv("APPDATA"), "AttendanceTracker")
+    else:
+        base_dir = os.path.join(os.getcwd(), "data")
+
+    os.makedirs(base_dir, exist_ok=True)
+    return base_dir
+
+
+DATA_DIR = get_data_directory()
+DATA_FILE = os.path.join(DATA_DIR, "attendance.csv")
+
+
 def ensure_data_file():
-    os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(DATA_FILE):
         with open(DATA_FILE, "w", newline="") as f:
-            csv.writer(f).writerow(["date", "subject", "status"])
+            writer = csv.writer(f)
+            writer.writerow(["date", "subject", "status"])
 
 
 def read_attendance():
@@ -55,7 +70,7 @@ class AttendanceApp(ttk.Window):
         super().__init__(
             title="📘 Attendance Tracker",
             themename="flatly",
-            size=(480, 680),
+            size=(500, 720),
             resizable=(False, False)
         )
 
@@ -111,7 +126,7 @@ class AttendanceApp(ttk.Window):
                    width=30, bootstyle=DANGER,
                    command=self.destroy).pack(pady=15)
 
-    # ---------------- ADD ----------------
+    # ---------------- ADD ATTENDANCE ----------------
     def show_add_attendance(self):
         self.clear()
 
@@ -151,9 +166,9 @@ class AttendanceApp(ttk.Window):
             return
 
         with open(DATA_FILE, "a", newline="") as f:
-            csv.writer(f).writerow([date_value, subject, status])
+            csv.writer(f).writerow([date_value, subject.strip(), status])
 
-        Messagebox.show_info("Attendance saved")
+        Messagebox.show_info("Attendance saved successfully")
         self.show_home()
 
     # ---------------- SUMMARY ----------------
@@ -192,18 +207,19 @@ class AttendanceApp(ttk.Window):
             ttk.Progressbar(
                 self.container, value=percent, maximum=100,
                 bootstyle=progress_style(percent),
-                length=380
+                length=400
             ).pack(pady=4)
 
             ttk.Label(
                 self.container,
                 text=f"Present: {c['P']} | Absent: {c['A']} | Classes needed: {need}",
-                wraplength=400
+                wraplength=450
             ).pack(anchor=W, pady=(0, 10))
 
         overall = (total_p / total_c) * 100
 
         ttk.Separator(self.container).pack(fill=X, pady=10)
+
         ttk.Label(self.container,
                   text=f"📈 Overall Attendance — {overall:.1f}%",
                   font=("Segoe UI", 12, "bold")).pack(anchor=W)
@@ -211,7 +227,7 @@ class AttendanceApp(ttk.Window):
         ttk.Progressbar(
             self.container, value=overall, maximum=100,
             bootstyle=progress_style(overall),
-            length=380
+            length=400
         ).pack(pady=8)
 
         ttk.Button(self.container, text="⬅ Back",
@@ -224,11 +240,11 @@ class AttendanceApp(ttk.Window):
         ttk.Label(self.container, text="🧺 Manage Data",
                   font=("Segoe UI", 18, "bold")).pack(pady=20)
 
-        ttk.Button(self.container, text="🧾 Delete a Class",
+        ttk.Button(self.container, text="🧾 Delete Individual Classes",
                    width=30, bootstyle=WARNING,
                    command=self.show_delete_class).pack(pady=10)
 
-        ttk.Button(self.container, text="📚 Delete a Subject",
+        ttk.Button(self.container, text="📚 Delete Entire Subject",
                    width=30, bootstyle=DANGER,
                    command=self.show_delete_subject).pack(pady=10)
 
@@ -236,7 +252,7 @@ class AttendanceApp(ttk.Window):
                    bootstyle=SECONDARY,
                    command=self.show_home).pack(pady=20)
 
-    # -------- DELETE CLASS --------
+    # ---------------- DELETE CLASS ----------------
     def show_delete_class(self):
         self.clear()
         rows = read_attendance()
@@ -245,17 +261,23 @@ class AttendanceApp(ttk.Window):
                   font=("Segoe UI", 16, "bold")).pack(pady=10)
 
         subjects = sorted(set(r["subject"] for r in rows))
+
+        if not subjects:
+            ttk.Label(self.container, text="No data available").pack(pady=10)
+            ttk.Button(self.container, text="⬅ Back",
+                       command=self.show_manage).pack()
+            return
+
         subject_var = tk.StringVar()
+        subject_rows = []
 
         ttk.Combobox(self.container, textvariable=subject_var,
                      values=subjects, state="readonly",
                      width=30).pack(pady=5)
 
         listbox = tk.Listbox(self.container, selectmode=MULTIPLE,
-                             width=45, height=8)
+                             width=50, height=10)
         listbox.pack(pady=10)
-
-        subject_rows = []
 
         def load_classes(*_):
             listbox.delete(0, END)
@@ -268,29 +290,32 @@ class AttendanceApp(ttk.Window):
         subject_var.trace_add("write", load_classes)
 
         def delete_selected():
-            if not listbox.curselection():
+            selected = listbox.curselection()
+            if not selected:
                 Messagebox.show_warning("Select at least one class")
                 return
 
-            remaining = [
+            remaining_subject_rows = [
                 r for i, r in enumerate(subject_rows)
-                if i not in listbox.curselection()
+                if i not in selected
             ]
 
-            new_rows = [r for r in rows if r["subject"] != subject_var.get()] + remaining
-            write_attendance(new_rows)
+            new_rows = [r for r in rows if r["subject"] != subject_var.get()]
+            new_rows.extend(remaining_subject_rows)
 
+            write_attendance(new_rows)
             Messagebox.show_info("Selected classes deleted")
             self.show_manage()
 
         ttk.Button(self.container, text="🗑 Delete Selected",
-                   bootstyle=DANGER, command=delete_selected).pack(pady=10)
+                   bootstyle=DANGER,
+                   command=delete_selected).pack(pady=10)
 
         ttk.Button(self.container, text="⬅ Back",
                    bootstyle=SECONDARY,
                    command=self.show_manage).pack()
 
-    # -------- DELETE SUBJECT --------
+    # ---------------- DELETE SUBJECT ----------------
     def show_delete_subject(self):
         self.clear()
         rows = read_attendance()
@@ -299,21 +324,35 @@ class AttendanceApp(ttk.Window):
                   font=("Segoe UI", 16, "bold")).pack(pady=15)
 
         subjects = sorted(set(r["subject"] for r in rows))
+
+        if not subjects:
+            ttk.Label(self.container, text="No subjects available").pack(pady=10)
+            ttk.Button(self.container, text="⬅ Back",
+                       command=self.show_manage).pack()
+            return
+
         subject_var = tk.StringVar()
 
-        ttk.Combobox(self.container, textvariable=subject_var,
-                     values=subjects, state="readonly",
+        ttk.Combobox(self.container,
+                     textvariable=subject_var,
+                     values=subjects,
+                     state="readonly",
                      width=30).pack(pady=10)
 
         def delete_subject():
             if not subject_var.get():
+                Messagebox.show_warning("Select a subject first")
                 return
-            write_attendance([r for r in rows if r["subject"] != subject_var.get()])
-            Messagebox.show_info("Subject deleted")
+
+            new_rows = [r for r in rows if r["subject"] != subject_var.get()]
+            write_attendance(new_rows)
+
+            Messagebox.show_info("Subject deleted successfully")
             self.show_manage()
 
         ttk.Button(self.container, text="🗑 Delete Subject",
-                   bootstyle=DANGER, command=delete_subject).pack(pady=10)
+                   bootstyle=DANGER,
+                   command=delete_subject).pack(pady=10)
 
         ttk.Button(self.container, text="⬅ Back",
                    bootstyle=SECONDARY,
@@ -322,4 +361,3 @@ class AttendanceApp(ttk.Window):
 
 if __name__ == "__main__":
     AttendanceApp().mainloop()
-
